@@ -1,0 +1,6 @@
+{
+  "name": "Food Costing Calculator",
+  "description": "Calculate Cost Price (CP) of cooked food items based on ingredients, standard teaspoon conversions, yield parameters, and cooking gas costs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
