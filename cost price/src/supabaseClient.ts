@@ -21,6 +21,9 @@ const createFallbackClient = () => {
     from: (_table: string) => ({
       select: (_query: string) => query,
       upsert: async (_payload: any) => ({ data: null, error: null }),
+      delete: () => ({
+        eq: async (_column: string, _value: any) => ({ data: null, error: null }),
+      }),
       limit: function (_n: number) {
         return query;
       },

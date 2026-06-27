@@ -38,6 +38,18 @@ export interface Recipe {
   ingredients: RecipeIngredient[];
   yieldType: 'weight' | 'piece';
   yieldAmount: number; // e.g., 1350 (grams) or 12 (pieces)
+  defaultServingAmount?: number; // e.g., 100 grams or 1 piece
   cookingTimeMins: number; // e.g., 10 (minutes)
   createdAt: string;
+}
+
+export interface DishServingCost {
+  id: string;
+  recipeId: string;
+  dishName: string;
+  defaultServingAmount: number;
+  defaultServingUnit: 'g' | 'pieces';
+  costPrice: number;
+  totalBatchCost: number;
+  updatedAt: string;
 }

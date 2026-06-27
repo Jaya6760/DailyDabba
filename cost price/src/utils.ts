@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Ingredient, TeaspoonConversion, GasConfig, Recipe, RecipeIngredient } from './types';
+import { Ingredient, TeaspoonConversion, GasConfig, Recipe, RecipeIngredient, DishServingCost } from './types';
 
 export interface GasCalculated {
   costPerKg: number;
@@ -163,5 +163,40 @@ export function calculateRecipeCosts(
     yieldAmount: recipe.yieldAmount,
     costPer100g,
     costPerPiece,
+  };
+}
+
+export function getDefaultServingAmount(recipe: Recipe): number {
+  if (recipe.defaultServingAmount && recipe.defaultServingAmount > 0) {
+    return recipe.defaultServingAmount;
+  }
+  return recipe.yieldType === 'weight' ? 100 : 1;
+}
+
+export function getDefaultServingUnit(recipe: Recipe): 'g' | 'pieces' {
+  return recipe.yieldType === 'weight' ? 'g' : 'pieces';
+}
+
+export function calculateDefaultServingCost(
+  recipe: Recipe,
+  ingredients: Ingredient[],
+  conversions: TeaspoonConversion[],
+  gasConfig: GasConfig
+): DishServingCost {
+  const breakdown = calculateRecipeCosts(recipe, ingredients, conversions, gasConfig);
+  const defaultServingAmount = getDefaultServingAmount(recipe);
+  const costPrice = recipe.yieldAmount > 0
+    ? (breakdown.totalBatchCost / recipe.yieldAmount) * defaultServingAmount
+    : 0;
+
+  return {
+    id: recipe.id,
+    recipeId: recipe.id,
+    dishName: recipe.name,
+    defaultServingAmount,
+    defaultServingUnit: getDefaultServingUnit(recipe),
+    costPrice,
+    totalBatchCost: breakdown.totalBatchCost,
+    updatedAt: new Date().toISOString(),
   };
 }

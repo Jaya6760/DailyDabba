@@ -13,7 +13,7 @@ import {
   initialRecipes,
   getCostPerUnit,
 } from './data';
-import { calculateRecipeCosts } from './utils';
+import { calculateDefaultServingCost, getDefaultServingAmount, getDefaultServingUnit } from './utils';
 
 // Import subcomponents
 import GasCostCalculator from './components/GasCostCalculator';
@@ -36,6 +36,7 @@ import {
   Layers,
   UtensilsCrossed,
   Sparkles,
+  Download,
 } from 'lucide-react';
 
 export default function App() {
@@ -75,6 +76,37 @@ export default function App() {
       return (totalBatchCost / recipe.yieldAmount) * servingValue;
     }
     return (totalBatchCost / recipe.yieldAmount) * servingValue;
+  };
+
+  const dishServingCosts = React.useMemo(
+    () => recipes.map(recipe => calculateDefaultServingCost(recipe, ingredients, conversions, gasConfig)),
+    [recipes, ingredients, conversions, gasConfig]
+  );
+
+  const escapeCsvCell = (value: string | number) => {
+    const raw = String(value);
+    return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+  };
+
+  const handleExportDishCosts = () => {
+    const header = ['Dish Name', 'Default Serve', 'Serve Unit', 'Cost Price', 'Total Batch Cost'];
+    const rows = dishServingCosts.map(cost => [
+      cost.dishName,
+      cost.defaultServingAmount,
+      cost.defaultServingUnit,
+      cost.costPrice.toFixed(2),
+      cost.totalBatchCost.toFixed(2),
+    ]);
+    const csv = [header, ...rows].map(row => row.map(escapeCsvCell).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.href = url;
+    downloadAnchor.download = 'dishes-serve-cost-price.csv';
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    URL.revokeObjectURL(url);
   };
 
   useEffect(() => {
@@ -153,10 +185,20 @@ export default function App() {
   useEffect(() => {
     if (!isDbLoaded) return;
     void (async () => {
+      if (recipes.length === 0) return;
       const { error } = await supabase.from('recipes').upsert(recipes);
       if (error) console.error('Recipes sync failed', error);
     })();
   }, [recipes, isDbLoaded]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    void (async () => {
+      if (dishServingCosts.length === 0) return;
+      const { error } = await supabase.from('dish_costs').upsert(dishServingCosts);
+      if (error) console.error('Dish serving costs sync failed. Create the dish_costs table using supabase-schema.sql.', error);
+    })();
+  }, [dishServingCosts, isDbLoaded]);
 
   // Derive counts of ingredient usage across all recipes
   const recipesCountMap = React.useMemo(() => {
@@ -190,6 +232,10 @@ export default function App() {
 
   const handleDeleteIngredient = (id: string) => {
     setIngredients(ingredients.filter(i => i.id !== id));
+    void (async () => {
+      const { error } = await supabase.from('ingredients').delete().eq('id', id);
+      if (error) console.error('Ingredient delete failed', error);
+    })();
   };
 
   const handleBulkImportIngredients = (importedList: Ingredient[]) => {
@@ -235,6 +281,10 @@ export default function App() {
 
   const handleDeleteConversion = (id: string) => {
     setConversions(conversions.filter(c => c.id !== id));
+    void (async () => {
+      const { error } = await supabase.from('conversions').delete().eq('id', id);
+      if (error) console.error('Conversion delete failed', error);
+    })();
   };
 
   const handleResetConversions = () => {
@@ -278,6 +328,7 @@ export default function App() {
 
     const finalizedRecipe: Recipe = {
       ...recipeToSave,
+      defaultServingAmount: getDefaultServingAmount(recipeToSave),
       ingredients: resolvedIngredients,
     };
 
@@ -318,6 +369,14 @@ export default function App() {
       setSelectedRecipeId(updated.length > 0 ? updated[0].id : null);
     }
     setIsEditing(false);
+    void (async () => {
+      const [{ error: recipeError }, { error: costError }] = await Promise.all([
+        supabase.from('recipes').delete().eq('id', recipeId),
+        supabase.from('dish_costs').delete().eq('recipeId', recipeId),
+      ]);
+      if (recipeError) console.error('Recipe delete failed', recipeError);
+      if (costError) console.error('Dish cost delete failed', costError);
+    })();
   };
 
   // Active editors trigger
@@ -394,16 +453,26 @@ export default function App() {
                       <Layers className="w-4 h-4 text-teal-500" />
                       Dishes & Menu Recipes
                     </h3>
-                    <p className="text-xs text-slate-400">Select dished recipes below to audit calculated Batch Costs</p>
+                    <p className="text-xs text-slate-400">Default serving costs update when ingredients or gas rates change</p>
                   </div>
 
-                  <button
-                    onClick={triggerCreateRecipe}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl hover:shadow-xs shadow-2xs transition whitespace-nowrap cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    New Recipe
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleExportDishCosts}
+                      className="flex items-center gap-1.5 px-3 py-2 text-teal-700 hover:text-white hover:bg-teal-600 border border-teal-200 hover:border-teal-600 font-bold text-xs uppercase tracking-wider rounded-xl transition whitespace-nowrap cursor-pointer"
+                      title="Export dishes cost price sheet"
+                    >
+                      <Download className="w-4 h-4" />
+                      Export Excel
+                    </button>
+                    <button
+                      onClick={triggerCreateRecipe}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl hover:shadow-xs shadow-2xs transition whitespace-nowrap cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      New Recipe
+                    </button>
+                  </div>
                 </div>
 
                 {/* Recipe lists filters */}
@@ -418,10 +487,10 @@ export default function App() {
                   />
                 </div>
 
-                {/* Recipe selection grid/chips */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-56 overflow-y-auto pr-1">
+                {/* Recipe selection rows */}
+                <div className="max-h-72 overflow-y-auto pr-1 border border-slate-100 rounded-2xl divide-y divide-slate-100">
                   {filteredRecipesList.length === 0 ? (
-                    <div className="col-span-full text-center py-6 text-slate-400">
+                    <div className="text-center py-6 text-slate-400">
                       <p className="text-xs font-semibold">No recipes matches found</p>
                       <button
                         onClick={() => setRecipeSearch('')}
@@ -433,63 +502,42 @@ export default function App() {
                   ) : (
                     filteredRecipesList.map(r => {
                       const isActive = selectedRecipeId === r.id;
-                      const cCosts = calculateRecipeCosts(r, ingredients, conversions, gasConfig);
-                      const servingQuantity = getRecipeServingQuantity(r);
-                      const displayedLabel = r.yieldType === 'weight' ? 'g' : 'pieces';
-                      const servingCost = calculateServingCost(r, cCosts.totalBatchCost, servingQuantity);
+                      const dishCost = dishServingCosts.find(cost => cost.recipeId === r.id);
+                      const servingQuantity = dishCost?.defaultServingAmount ?? getDefaultServingAmount(r);
+                      const displayedLabel = dishCost?.defaultServingUnit ?? getDefaultServingUnit(r);
+                      const servingCost = dishCost?.costPrice ?? 0;
 
                       return (
-                        <div
+                        <button
                           key={r.id}
                           onClick={() => setSelectedRecipeId(r.id)}
-                          className={`p-4 rounded-2xl border cursor-pointer select-none transition-all flex flex-col justify-between ${
+                          className={`w-full px-4 py-3 text-left cursor-pointer select-none transition-all grid grid-cols-12 gap-3 items-center ${
                             isActive
-                              ? 'bg-teal-50/40 border-teal-500/40 ring-1 ring-teal-500/10 shadow-xs'
-                              : 'bg-white hover:bg-slate-100/30 border-slate-100 shadow-2xs'
+                              ? 'bg-teal-50/60'
+                              : 'bg-white hover:bg-slate-50/80'
                           }`}
                         >
-                          <div>
-                            <div className="flex justify-between items-start gap-2">
+                          <div className="col-span-6 min-w-0">
+                            <div className="min-w-0">
                               <span className="font-bold text-slate-700 text-sm line-clamp-1">
                                 {r.name}
                               </span>
-                              <span className="font-mono text-xs font-extrabold text-teal-600 whitespace-nowrap">
+                              <span className="hidden">
                                 ₹{servingCost.toFixed(2)}
                               </span>
                             </div>
-                            <div className="mt-3">
-                              <div className="flex items-center gap-2">
-                                <label className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">
-                                  Serving Quantity
-                                </label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  step="0.1"
-                                  value={servingQuantity}
-                                  onChange={e => setRecipeServingQuantities({
-                                    ...recipeServingQuantities,
-                                    [r.id]: e.target.value,
-                                  })}
-                                  className="w-20 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-teal-500"
-                                />
-                                <span className="text-[10px] text-slate-400">
-                                  {displayedLabel}
-                                </span>
-                              </div>
-                              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mt-2">
-                                Serving: {servingQuantity} {displayedLabel}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-slate-100/60 text-[9px] font-mono text-slate-400">
-                            <span>{r.ingredients.length} items</span>
-                            <span className="bg-slate-100/80 text-slate-500 font-bold px-1.5 py-0.2 rounded">
-                              {r.cookingTimeMins} min cooked
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {r.ingredients.length} items | {r.cookingTimeMins} min cooked
                             </span>
                           </div>
-                        </div>
+
+                          <div className="col-span-3 text-xs text-slate-500 font-semibold">
+                            {servingQuantity} {displayedLabel}
+                          </div>
+                          <div className="col-span-3 text-right font-mono text-sm font-extrabold text-teal-600 whitespace-nowrap">
+                            Rs {servingCost.toFixed(2)}
+                          </div>
+                        </button>
                       );
                     })
                   )}
