@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import supabase from './supabaseClient';
 import { Ingredient, TeaspoonConversion, GasConfig, Recipe } from './types';
 import {
   initialIngredients,
@@ -38,56 +39,124 @@ import {
 } from 'lucide-react';
 
 export default function App() {
-  // State initialization loading from LocalStorage or preseeded values
-  const [ingredients, setIngredients] = useState<Ingredient[]>(() => {
-    const raw = localStorage.getItem('food_costing_ingredients');
-    return raw ? JSON.parse(raw) : initialIngredients;
-  });
+  // State initialization loading from Supabase or preseeded values
+  const [ingredients, setIngredients] = useState<Ingredient[]>(initialIngredients);
+  const [conversions, setConversions] = useState<TeaspoonConversion[]>(initialConversions);
+  const [gasConfig, setGasConfig] = useState<GasConfig>(initialGasConfig);
+  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
 
-  const [conversions, setConversions] = useState<TeaspoonConversion[]>(() => {
-    const raw = localStorage.getItem('food_costing_conversions');
-    return raw ? JSON.parse(raw) : initialConversions;
-  });
-
-  const [gasConfig, setGasConfig] = useState<GasConfig>(() => {
-    const raw = localStorage.getItem('food_costing_gas_config');
-    return raw ? JSON.parse(raw) : initialGasConfig;
-  });
-
-  const [recipes, setRecipes] = useState<Recipe[]>(() => {
-    const raw = localStorage.getItem('food_costing_recipes');
-    return raw ? JSON.parse(raw) : initialRecipes;
-  });
+  const [isDbLoaded, setIsDbLoaded] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
 
   // UI state
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(() => {
-    const first = recipes.length > 0 ? recipes[0].id : null;
+    const first = initialRecipes.length > 0 ? initialRecipes[0].id : null;
     return first;
   });
   const [isEditing, setIsEditing] = useState(false);
   const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null); // null means new recipe
+  const [recipeServingQuantities, setRecipeServingQuantities] = useState<Record<string, string>>({});
 
   // Right column active sub-tab (for layout partitioning)
   const [activeTab, setActiveTab] = useState<'ingredients' | 'gas' | 'conversions'>('ingredients');
   // Filters for recipes search list
   const [recipeSearch, setRecipeSearch] = useState('');
 
-  // Sync to local storage
-  useEffect(() => {
-    localStorage.setItem('food_costing_ingredients', JSON.stringify(ingredients));
-  }, [ingredients]);
+  const getRecipeServingQuantity = (recipe: Recipe) => {
+    return recipeServingQuantities[recipe.id] ?? recipe.yieldAmount.toString();
+  };
+
+  const calculateServingCost = (recipe: Recipe, totalBatchCost: number, servingString: string) => {
+    const servingValue = parseFloat(servingString);
+    if (isNaN(servingValue) || servingValue <= 0 || recipe.yieldAmount <= 0) {
+      return 0;
+    }
+    if (recipe.yieldType === 'weight') {
+      return (totalBatchCost / recipe.yieldAmount) * servingValue;
+    }
+    return (totalBatchCost / recipe.yieldAmount) * servingValue;
+  };
 
   useEffect(() => {
-    localStorage.setItem('food_costing_conversions', JSON.stringify(conversions));
-  }, [conversions]);
+    const loadFromDatabase = async () => {
+      try {
+        const [{ data: ingredientsData, error: ingErr }, { data: conversionsData, error: convErr }, { data: gasData, error: gasErr }, { data: recipesData, error: recipesErr }] = await Promise.all([
+          supabase.from('ingredients').select('*'),
+          supabase.from('conversions').select('*'),
+          supabase.from('gas_config').select('*').limit(1),
+          supabase.from('recipes').select('*'),
+        ]);
+
+        if (ingErr || convErr || gasErr || recipesErr) {
+          throw ingErr || convErr || gasErr || recipesErr;
+        }
+
+        const loadedIngredients = ingredientsData && ingredientsData.length > 0 ? ingredientsData as Ingredient[] : initialIngredients;
+        const loadedConversions = conversionsData && conversionsData.length > 0 ? conversionsData as TeaspoonConversion[] : initialConversions;
+        const loadedGasConfig = gasData && gasData.length > 0 ? gasData[0] as GasConfig & { id: string } : initialGasConfig;
+        const loadedRecipes = recipesData && recipesData.length > 0 ? recipesData as Recipe[] : initialRecipes;
+
+        setIngredients(loadedIngredients);
+        setConversions(loadedConversions);
+        setGasConfig(loadedGasConfig);
+        setRecipes(loadedRecipes);
+        setSelectedRecipeId(prevId => prevId || loadedRecipes[0]?.id || null);
+        setIsDbLoaded(true);
+
+        // Seed any missing data in the database so tables are initialized.
+        if (!ingredientsData || ingredientsData.length === 0) {
+          await supabase.from('ingredients').upsert(initialIngredients);
+        }
+        if (!conversionsData || conversionsData.length === 0) {
+          await supabase.from('conversions').upsert(initialConversions);
+        }
+        if (!gasData || gasData.length === 0) {
+          await supabase.from('gas_config').upsert([{ id: 'singleton', ...initialGasConfig }]);
+        }
+        if (!recipesData || recipesData.length === 0) {
+          await supabase.from('recipes').upsert(initialRecipes);
+        }
+      } catch (error) {
+        console.error('Failed to load app data from Supabase', error);
+        setDbError('Unable to load app data from the database. Using local defaults.');
+        setIsDbLoaded(true);
+      }
+    };
+
+    loadFromDatabase();
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('food_costing_gas_config', JSON.stringify(gasConfig));
-  }, [gasConfig]);
+    if (!isDbLoaded) return;
+    void (async () => {
+      const { error } = await supabase.from('ingredients').upsert(ingredients);
+      if (error) console.error('Ingredients sync failed', error);
+    })();
+  }, [ingredients, isDbLoaded]);
 
   useEffect(() => {
-    localStorage.setItem('food_costing_recipes', JSON.stringify(recipes));
-  }, [recipes]);
+    if (!isDbLoaded) return;
+    void (async () => {
+      const { error } = await supabase.from('conversions').upsert(conversions);
+      if (error) console.error('Conversions sync failed', error);
+    })();
+  }, [conversions, isDbLoaded]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    void (async () => {
+      const { error } = await supabase.from('gas_config').upsert([{ id: 'singleton', ...gasConfig }]);
+      if (error) console.error('Gas config sync failed', error);
+    })();
+  }, [gasConfig, isDbLoaded]);
+
+  useEffect(() => {
+    if (!isDbLoaded) return;
+    void (async () => {
+      const { error } = await supabase.from('recipes').upsert(recipes);
+      if (error) console.error('Recipes sync failed', error);
+    })();
+  }, [recipes, isDbLoaded]);
 
   // Derive counts of ingredient usage across all recipes
   const recipesCountMap = React.useMemo(() => {
@@ -275,7 +344,7 @@ export default function App() {
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-100/90 shadow-2xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-tr from-teal-600 to-sky-500 text-white rounded-2xl shadow-sm">
+            <div className="p-2 bg-linear-to-tr from-teal-600 to-sky-500 text-white rounded-2xl shadow-sm">
               <ChefHat className="w-6 h-6 animate-pulse" />
             </div>
             <div>
@@ -365,6 +434,9 @@ export default function App() {
                     filteredRecipesList.map(r => {
                       const isActive = selectedRecipeId === r.id;
                       const cCosts = calculateRecipeCosts(r, ingredients, conversions, gasConfig);
+                      const servingQuantity = getRecipeServingQuantity(r);
+                      const displayedLabel = r.yieldType === 'weight' ? 'g' : 'pieces';
+                      const servingCost = calculateServingCost(r, cCosts.totalBatchCost, servingQuantity);
 
                       return (
                         <div
@@ -382,12 +454,33 @@ export default function App() {
                                 {r.name}
                               </span>
                               <span className="font-mono text-xs font-extrabold text-teal-600 whitespace-nowrap">
-                                ₹{cCosts.totalBatchCost.toFixed(2)}
+                                ₹{servingCost.toFixed(2)}
                               </span>
                             </div>
-                            <p className="text-[10px] text-slate-400 font-medium mt-1 uppercase tracking-wider">
-                              Yield: {r.yieldAmount} {r.yieldType === 'weight' ? 'g' : 'Pieces'}
-                            </p>
+                            <div className="mt-3">
+                              <div className="flex items-center gap-2">
+                                <label className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">
+                                  Serving Quantity
+                                </label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  step="0.1"
+                                  value={servingQuantity}
+                                  onChange={e => setRecipeServingQuantities({
+                                    ...recipeServingQuantities,
+                                    [r.id]: e.target.value,
+                                  })}
+                                  className="w-20 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-teal-500"
+                                />
+                                <span className="text-[10px] text-slate-400">
+                                  {displayedLabel}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mt-2">
+                                Serving: {servingQuantity} {displayedLabel}
+                              </p>
+                            </div>
                           </div>
 
                           <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-slate-100/60 text-[9px] font-mono text-slate-400">

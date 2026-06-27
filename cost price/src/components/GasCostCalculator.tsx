@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { GasConfig } from '../types';
 import { calculateGasCosts } from '../utils';
 import { Flame, Info, DollarSign, Scale, Hourglass } from 'lucide-react';
@@ -14,22 +14,44 @@ interface GasCostCalculatorProps {
 }
 
 export default function GasCostCalculator({ config, onChange }: GasCostCalculatorProps) {
-  const calcs = calculateGasCosts(config);
+  const [cylinderPrice, setCylinderPrice] = useState(config.cylinderPrice.toString());
+  const [cylinderWeight, setCylinderWeight] = useState(config.cylinderWeightKg.toString());
+  const [consumptionRate, setConsumptionRate] = useState(config.consumptionRateKgHour.toString());
+
+  useEffect(() => {
+    setCylinderPrice(config.cylinderPrice.toString());
+  }, [config.cylinderPrice]);
+
+  useEffect(() => {
+    setCylinderWeight(config.cylinderWeightKg.toString());
+  }, [config.cylinderWeightKg]);
+
+  useEffect(() => {
+    setConsumptionRate(config.consumptionRateKgHour.toString());
+  }, [config.consumptionRateKgHour]);
 
   const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
+    const value = e.target.value;
+    setCylinderPrice(value);
+    const val = parseFloat(value);
     onChange({ ...config, cylinderPrice: isNaN(val) ? 0 : val });
   };
 
   const handleWeightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
+    const value = e.target.value;
+    setCylinderWeight(value);
+    const val = parseFloat(value);
     onChange({ ...config, cylinderWeightKg: isNaN(val) ? 0 : val });
   };
 
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
+    const value = e.target.value;
+    setConsumptionRate(value);
+    const val = parseFloat(value);
     onChange({ ...config, consumptionRateKgHour: isNaN(val) ? 0 : val });
   };
+
+  const calcs = calculateGasCosts(config);
 
   return (
     <div id="gas-cost-calculator" className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
@@ -145,7 +167,7 @@ export default function GasCostCalculator({ config, onChange }: GasCostCalculato
         </div>
 
         <div className="text-xs text-slate-400/80 leading-relaxed border-t border-slate-100 pt-3 flex items-start gap-2">
-          <Info className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 mt-0.5" />
+          <Info className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
           <div>
             <p>
               Gas Cost/kg = ₹{config.cylinderPrice} / {config.cylinderWeightKg} kg = <strong>₹{calcs.costPerKg.toFixed(2)}</strong>.

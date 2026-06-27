@@ -71,7 +71,7 @@ export default function RecipeDetail({
           </div>
           <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{recipe.name}</h2>
           <p className="text-xs text-slate-400">
-            Yield: <strong className="text-slate-600 font-mono">{recipe.yieldAmount} {recipe.yieldType === 'weight' ? 'g' : 'Pieces'}</strong>
+            Serving: <strong className="text-slate-600 font-mono">{recipe.yieldAmount} {recipe.yieldType === 'weight' ? 'g' : 'Pieces'}</strong>
           </p>
         </div>
 

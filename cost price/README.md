@@ -10,11 +10,12 @@ View your app in AI Studio: https://ai.studio/apps/ab0feb7e-b2ae-4dac-a8e6-a6039
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Create an `.env.local` file and set your Supabase environment values:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
 3. Run the app:
    `npm run dev`

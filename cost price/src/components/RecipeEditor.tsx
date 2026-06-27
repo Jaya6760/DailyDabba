@@ -29,13 +29,13 @@ interface EditorRow {
   localId: string;
   ingredientId: string; // "new" if user is typing a custom ingredient
   name: string;
-  quantity: number;
+  quantity: string;
   unit: 'g' | 'kg' | 'ml' | 'litre' | 'tsp';
   // If it's a new ingredient being added on the fly:
   isNew: boolean;
-  purchaseQty: number;
+  purchaseQty: string;
   purchaseUnit: 'kg' | 'g' | 'litre' | 'ml';
-  purchaseCost: number;
+  purchaseCost: string;
 }
 
 export default function RecipeEditor({
@@ -46,8 +46,8 @@ export default function RecipeEditor({
 }: RecipeEditorProps) {
   const [recipeName, setRecipeName] = useState('');
   const [yieldType, setYieldType] = useState<'weight' | 'piece'>('weight');
-  const [yieldAmount, setYieldAmount] = useState<number>(1000);
-  const [cookingTimeMins, setCookingTimeMins] = useState<number>(10);
+  const [yieldAmount, setYieldAmount] = useState('1000');
+  const [cookingTimeMins, setCookingTimeMins] = useState('10');
   const [rows, setRows] = useState<EditorRow[]>([]);
   const [errorText, setErrorText] = useState<string | null>(null);
 
@@ -56,8 +56,8 @@ export default function RecipeEditor({
     if (recipe) {
       setRecipeName(recipe.name);
       setYieldType(recipe.yieldType);
-      setYieldAmount(recipe.yieldAmount);
-      setCookingTimeMins(recipe.cookingTimeMins);
+      setYieldAmount(recipe.yieldAmount.toString());
+      setCookingTimeMins(recipe.cookingTimeMins.toString());
 
       // Map ingredients
       const mappedRows: EditorRow[] = recipe.ingredients.map((ri, idx) => {
@@ -66,12 +66,12 @@ export default function RecipeEditor({
           localId: `row_${idx}_${Date.now()}`,
           ingredientId: ri.ingredientId,
           name: ri.name,
-          quantity: ri.quantity,
+          quantity: ri.quantity.toString(),
           unit: ri.unit,
           isNew: !matchesDB,
-          purchaseQty: 1,
+          purchaseQty: '1',
           purchaseUnit: 'kg',
-          purchaseCost: 0,
+          purchaseCost: '0',
         };
       });
       setRows(mappedRows);
@@ -79,19 +79,19 @@ export default function RecipeEditor({
       // Create empty template
       setRecipeName('');
       setYieldType('weight');
-      setYieldAmount(1000);
-      setCookingTimeMins(10);
+      setYieldAmount('1000');
+      setCookingTimeMins('10');
       setRows([
         {
           localId: `row_0_${Date.now()}`,
           ingredientId: ingredientsList[0]?.id || '',
           name: ingredientsList[0]?.name || '',
-          quantity: 100,
+          quantity: '100',
           unit: 'g',
           isNew: false,
-          purchaseQty: 1,
+          purchaseQty: '1',
           purchaseUnit: 'kg',
-          purchaseCost: 0,
+          purchaseCost: '0',
         },
       ]);
     }
@@ -104,12 +104,12 @@ export default function RecipeEditor({
       localId: `row_${Date.now()}_${Math.random()}`,
       ingredientId: defaultIng?.id || '',
       name: defaultIng?.name || '',
-      quantity: 50,
+      quantity: '50',
       unit: 'g',
       isNew: false,
-      purchaseQty: 1,
+      purchaseQty: '1',
       purchaseUnit: 'kg',
-      purchaseCost: 0,
+      purchaseCost: '0',
     };
     setRows([...rows, newRow]);
   };
@@ -166,18 +166,32 @@ export default function RecipeEditor({
       return;
     }
 
+    const yieldAmountValue = parseFloat(yieldAmount);
+    const cookingTimeValue = parseInt(cookingTimeMins, 10);
+    if (isNaN(yieldAmountValue) || yieldAmountValue <= 0) {
+      setErrorText('Please enter a valid recipe yield amount.');
+      return;
+    }
+    if (isNaN(cookingTimeValue) || cookingTimeValue < 0) {
+      setErrorText('Please enter a valid cooking time in minutes.');
+      return;
+    }
+
     // Verify all row quantities
     for (let r of rows) {
-      if (r.quantity <= 0 || isNaN(r.quantity)) {
+      const quantityValue = parseFloat(r.quantity);
+      if (isNaN(quantityValue) || quantityValue <= 0) {
         setErrorText(`Ingredient "${r.name || 'unnamed'}" has invalid use quantity.`);
         return;
       }
       if (r.isNew) {
+        const purchaseQtyValue = parseFloat(r.purchaseQty);
+        const purchaseCostValue = parseFloat(r.purchaseCost);
         if (!r.name.trim()) {
           setErrorText('Please enter a name for the new custom ingredient.');
           return;
         }
-        if (r.purchaseQty <= 0 || isNaN(r.purchaseQty) || r.purchaseCost < 0 || isNaN(r.purchaseCost)) {
+        if (isNaN(purchaseQtyValue) || purchaseQtyValue <= 0 || isNaN(purchaseCostValue) || purchaseCostValue < 0) {
           setErrorText(`Please enter correct purchase specs for new ingredient "${r.name}".`);
           return;
         }
@@ -193,23 +207,25 @@ export default function RecipeEditor({
       }
     }
 
-    // Prepare temporary ingredients to bulk register
     const newIngredientsToCreate: Ingredient[] = [];
     const savedIngredientsMapped: RecipeIngredient[] = rows.map((r, index) => {
       let finalId = r.ingredientId;
       let finalName = r.name;
+      const quantityValue = parseFloat(r.quantity);
 
       if (r.isNew) {
         // Create matching temporary ID
         const tempId = `temp_api_${index}_${Date.now()}`;
-        const costPerUnit = getCostPerUnit(r.purchaseQty, r.purchaseUnit, r.purchaseCost);
+        const purchaseQtyValue = parseFloat(r.purchaseQty);
+        const purchaseCostValue = parseFloat(r.purchaseCost);
+        const costPerUnit = getCostPerUnit(purchaseQtyValue, r.purchaseUnit, purchaseCostValue);
         
         const newIngObj: Ingredient = {
           id: tempId,
           name: r.name.trim(),
-          purchaseQty: r.purchaseQty,
+          purchaseQty: purchaseQtyValue,
           purchaseUnit: r.purchaseUnit,
-          purchaseCost: r.purchaseCost,
+          purchaseCost: purchaseCostValue,
           costPerUnit,
         };
         newIngredientsToCreate.push(newIngObj);
@@ -220,7 +236,7 @@ export default function RecipeEditor({
         id: `ri_${index}_${Date.now()}`,
         ingredientId: finalId,
         name: finalName,
-        quantity: r.quantity,
+        quantity: quantityValue,
         unit: r.unit,
       };
     });
@@ -229,8 +245,8 @@ export default function RecipeEditor({
       id: recipe ? recipe.id : `rec_${Date.now()}`,
       name: recipeName.trim(),
       yieldType,
-      yieldAmount,
-      cookingTimeMins,
+      yieldAmount: yieldAmountValue,
+      cookingTimeMins: cookingTimeValue,
       ingredients: savedIngredientsMapped,
       createdAt: recipe ? recipe.createdAt : new Date().toISOString(),
     };
@@ -288,10 +304,7 @@ export default function RecipeEditor({
                 required
                 min="0"
                 value={cookingTimeMins}
-                onChange={e => {
-                  const val = parseInt(e.target.value);
-                  setCookingTimeMins(isNaN(val) ? 0 : val);
-                }}
+                onChange={e => setCookingTimeMins(e.target.value)}
                 className="w-full px-3.5 py-2.5 text-sm bg-slate-50/70 border border-slate-100/80 focus:bg-white focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 outline-none rounded-xl transition font-semibold text-slate-700"
               />
               <span className="absolute inset-y-0 right-3.5 flex items-center text-slate-400 text-xs font-mono">
@@ -345,10 +358,7 @@ export default function RecipeEditor({
                   required
                   min="1"
                   value={yieldAmount}
-                  onChange={e => {
-                    const val = parseFloat(e.target.value);
-                    setYieldAmount(isNaN(val) ? 0 : val);
-                  }}
+                  onChange={e => setYieldAmount(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 focus:ring-1 focus:ring-teal-500/20 focus:border-teal-500 outline-none rounded-xl transition font-mono font-bold text-slate-700"
                   placeholder="e.g., 1350"
                 />
@@ -371,10 +381,7 @@ export default function RecipeEditor({
                   required
                   min="1"
                   value={yieldAmount}
-                  onChange={e => {
-                    const val = parseInt(e.target.value);
-                    setYieldAmount(isNaN(val) ? 0 : val);
-                  }}
+                  onChange={e => setYieldAmount(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 focus:ring-1 focus:ring-teal-500/20 focus:border-teal-500 outline-none rounded-xl transition font-mono font-bold text-slate-700"
                   placeholder="e.g., 12"
                 />
@@ -453,10 +460,7 @@ export default function RecipeEditor({
                           required
                           min="0.01"
                           value={row.quantity}
-                          onChange={e => {
-                            const val = parseFloat(e.target.value);
-                            updateRow(row.localId, { quantity: isNaN(val) ? 0 : val });
-                          }}
+                          onChange={e => updateRow(row.localId, { quantity: e.target.value })}
                           className="w-full px-3 py-1.5 text-xs bg-slate-50/70 border border-slate-100/85 focus:bg-white outline-none rounded-lg font-semibold text-slate-700 font-mono"
                           placeholder="qty"
                         />
@@ -508,7 +512,7 @@ export default function RecipeEditor({
                   {row.isNew && (
                     <div className="mt-3 p-3 bg-amber-50/40 border border-amber-200/60 rounded-xl space-y-2">
                       <div className="flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                        <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
                         <div>
                           <p className="text-xs font-bold text-amber-800">
                             Ingredient not found. Please enter purchase quantity and cost.
@@ -528,10 +532,7 @@ export default function RecipeEditor({
                             step="0.1"
                             min="0.1"
                             value={row.purchaseQty}
-                            onChange={e => {
-                              const val = parseFloat(e.target.value);
-                              updateRow(row.localId, { purchaseQty: isNaN(val) ? 0 : val });
-                            }}
+                            onChange={e => updateRow(row.localId, { purchaseQty: e.target.value })}
                             className="w-full px-2 py-1 text-[11px] bg-white border border-amber-200 outline-none rounded font-semibold text-slate-700"
                             placeholder="e.g. 1"
                           />
@@ -559,10 +560,7 @@ export default function RecipeEditor({
                             step="0.01"
                             min="0"
                             value={row.purchaseCost}
-                            onChange={e => {
-                              const val = parseFloat(e.target.value);
-                              updateRow(row.localId, { purchaseCost: isNaN(val) ? 0 : val });
-                            }}
+                            onChange={e => updateRow(row.localId, { purchaseCost: e.target.value })}
                             className="w-full px-2 py-1 text-[11px] bg-white border border-amber-200 outline-none rounded font-semibold text-slate-700"
                             placeholder="e.g. 59.8"
                           />
@@ -579,7 +577,7 @@ export default function RecipeEditor({
         {/* Error panel */}
         {errorText && (
           <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-red-700 text-xs font-semibold">
-            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+            <AlertTriangle className="w-5 h-5 shrink-0" />
             <p>{errorText}</p>
           </div>
         )}
