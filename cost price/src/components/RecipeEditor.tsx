@@ -31,6 +31,7 @@ interface EditorRow {
   name: string;
   quantity: string;
   unit: 'g' | 'kg' | 'ml' | 'litre' | 'tsp';
+  searchQuery: string;
   // If it's a new ingredient being added on the fly:
   isNew: boolean;
   purchaseQty: string;
@@ -68,10 +69,11 @@ export default function RecipeEditor({
           name: ri.name,
           quantity: ri.quantity.toString(),
           unit: ri.unit,
+          searchQuery: matchesDB?.name || ri.name || '',
           isNew: !matchesDB,
-          purchaseQty: '1',
+          purchaseQty: '',
           purchaseUnit: 'kg',
-          purchaseCost: '0',
+          purchaseCost: '',
         };
       });
       setRows(mappedRows);
@@ -88,16 +90,16 @@ export default function RecipeEditor({
           name: ingredientsList[0]?.name || '',
           quantity: '100',
           unit: 'g',
+          searchQuery: '',
           isNew: false,
-          purchaseQty: '1',
+          purchaseQty: '',
           purchaseUnit: 'kg',
-          purchaseCost: '0',
+          purchaseCost: '',
         },
       ]);
     }
   }, [recipe, ingredientsList]);
 
-  // Handle addition of row
   const addRow = () => {
     const defaultIng = ingredientsList[0];
     const newRow: EditorRow = {
@@ -106,10 +108,11 @@ export default function RecipeEditor({
       name: defaultIng?.name || '',
       quantity: '50',
       unit: 'g',
+      searchQuery: '',
       isNew: false,
-      purchaseQty: '1',
+      purchaseQty: '',
       purchaseUnit: 'kg',
-      purchaseCost: '0',
+      purchaseCost: '',
     };
     setRows([...rows, newRow]);
   };
@@ -131,6 +134,7 @@ export default function RecipeEditor({
             const found = ingredientsList.find(i => i.id === updates.ingredientId);
             if (found) {
               merged.name = found.name;
+              merged.searchQuery = found.name;
               merged.isNew = false;
               // Suggest matching base unit as default
               if (found.purchaseUnit === 'litre' || found.purchaseUnit === 'ml') {
@@ -142,6 +146,7 @@ export default function RecipeEditor({
           } else if (updates.ingredientId === 'new') {
             merged.isNew = true;
             merged.name = ''; // Need to type custom name
+            merged.searchQuery = '';
             merged.unit = 'g';
           }
           return merged;
@@ -430,18 +435,27 @@ export default function RecipeEditor({
                     {/* Database selector */}
                     <div className="md:col-span-5 space-y-1">
                       <label className="text-[10px] uppercase font-bold text-slate-400 block font-mono">
-                        Select Matched Raw Material
+                        Search & select raw material
                       </label>
+                      <input
+                        type="text"
+                        value={row.searchQuery}
+                        onChange={e => updateRow(row.localId, { searchQuery: e.target.value })}
+                        placeholder="Type to filter ingredients..."
+                        className="w-full px-3 py-2 text-xs bg-slate-50/70 border border-slate-100/85 focus:bg-white focus:border-teal-500 outline-none rounded-lg font-semibold text-slate-700"
+                      />
                       <select
                         value={row.ingredientId}
                         onChange={e => updateRow(row.localId, { ingredientId: e.target.value })}
                         className="w-full px-3 py-2 text-xs bg-slate-50/70 border border-slate-100/85 focus:bg-white focus:border-teal-500 outline-none rounded-lg font-semibold text-slate-700"
                       >
-                        {ingredientsList.map(item => (
-                          <option key={item.id} value={item.id}>
-                            {item.name} (₹{item.purchaseCost}/{item.purchaseQty}{item.purchaseUnit})
-                          </option>
-                        ))}
+                        {ingredientsList
+                          .filter(item => item.name.toLowerCase().includes(row.searchQuery.toLowerCase()))
+                          .map(item => (
+                            <option key={item.id} value={item.id}>
+                              {item.name} (₹{item.purchaseCost}/{item.purchaseQty}{item.purchaseUnit})
+                            </option>
+                          ))}
                         <option value="new" className="text-amber-600 font-bold">
                           ➕ [Not Found - Register New Ingredient on-the-fly]
                         </option>

@@ -34,21 +34,27 @@ export default function GasCostCalculator({ config, onChange }: GasCostCalculato
     const value = e.target.value;
     setCylinderPrice(value);
     const val = parseFloat(value);
-    onChange({ ...config, cylinderPrice: isNaN(val) ? 0 : val });
+    if (!Number.isNaN(val)) {
+      onChange({ ...config, cylinderPrice: val });
+    }
   };
 
   const handleWeightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setCylinderWeight(value);
     const val = parseFloat(value);
-    onChange({ ...config, cylinderWeightKg: isNaN(val) ? 0 : val });
+    if (!Number.isNaN(val)) {
+      onChange({ ...config, cylinderWeightKg: val });
+    }
   };
 
   const handleRateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setConsumptionRate(value);
     const val = parseFloat(value);
-    onChange({ ...config, consumptionRateKgHour: isNaN(val) ? 0 : val });
+    if (!Number.isNaN(val)) {
+      onChange({ ...config, consumptionRateKgHour: val });
+    }
   };
 
   const calcs = calculateGasCosts(config);
@@ -77,7 +83,7 @@ export default function GasCostCalculator({ config, onChange }: GasCostCalculato
             </span>
             <input
               type="number"
-              value={config.cylinderPrice}
+              value={cylinderPrice}
               onChange={handlePriceChange}
               step="1"
               min="0"
@@ -95,7 +101,7 @@ export default function GasCostCalculator({ config, onChange }: GasCostCalculato
           <div className="relative rounded-xl overflow-hidden shadow-sm">
             <input
               type="number"
-              value={config.cylinderWeightKg}
+              value={cylinderWeight}
               onChange={handleWeightChange}
               step="0.1"
               min="0.1"
@@ -116,7 +122,7 @@ export default function GasCostCalculator({ config, onChange }: GasCostCalculato
           <div className="relative rounded-xl overflow-hidden shadow-sm">
             <input
               type="number"
-              value={config.consumptionRateKgHour}
+              value={consumptionRate}
               onChange={handleRateChange}
               step="0.01"
               min="0"

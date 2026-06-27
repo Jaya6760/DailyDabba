@@ -40,19 +40,22 @@ export default function RecipeDetail({
   onDuplicate,
   onDelete,
 }: RecipeDetailProps) {
-  const [customServingWeight, setCustomServingWeight] = useState<number>(100);
-  const [customServingPieces, setCustomServingPieces] = useState<number>(1);
+  const [customServingWeight, setCustomServingWeight] = useState<string>('100');
+  const [customServingPieces, setCustomServingPieces] = useState<string>('1');
   const [showDebug, setShowDebug] = useState<boolean>(true);
 
   const breakdown = calculateRecipeCosts(recipe, ingredients, conversions, gasConfig);
 
   // Custom costing calculation
-  const calculatedCustomWeightCost = breakdown.yieldAmount > 0
-    ? (breakdown.totalBatchCost / breakdown.yieldAmount) * customServingWeight
+  const customWeightValue = parseFloat(customServingWeight);
+  const customPieceValue = parseFloat(customServingPieces);
+
+  const calculatedCustomWeightCost = breakdown.yieldAmount > 0 && !Number.isNaN(customWeightValue)
+    ? (breakdown.totalBatchCost / breakdown.yieldAmount) * customWeightValue
     : 0;
 
-  const calculatedCustomPieceCost = breakdown.yieldAmount > 0
-    ? (breakdown.totalBatchCost / breakdown.yieldAmount) * customServingPieces
+  const calculatedCustomPieceCost = breakdown.yieldAmount > 0 && !Number.isNaN(customPieceValue)
+    ? (breakdown.totalBatchCost / breakdown.yieldAmount) * customPieceValue
     : 0;
 
   return (
@@ -135,10 +138,7 @@ export default function RecipeDetail({
                     <input
                       type="number"
                       value={customServingWeight}
-                      onChange={e => {
-                        const val = parseFloat(e.target.value);
-                        setCustomServingWeight(isNaN(val) ? 0 : val);
-                      }}
+                      onChange={e => setCustomServingWeight(e.target.value)}
                       className="w-16 px-1.5 py-0.5 text-xs text-right bg-white border border-slate-200 rounded font-semibold text-slate-700"
                     />
                     <span className="text-xs font-mono text-slate-400">g</span>
@@ -171,10 +171,7 @@ export default function RecipeDetail({
                       type="number"
                       min="1"
                       value={customServingPieces}
-                      onChange={e => {
-                        const val = parseInt(e.target.value);
-                        setCustomServingPieces(isNaN(val) || val < 1 ? 1 : val);
-                      }}
+                      onChange={e => setCustomServingPieces(e.target.value)}
                       className="w-16 px-1.5 py-0.5 text-xs text-right bg-white border border-slate-200 rounded font-semibold text-slate-700 font-mono"
                     />
                     <span className="text-xs font-medium text-slate-400">pc</span>

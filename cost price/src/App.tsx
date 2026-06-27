@@ -89,16 +89,16 @@ export default function App() {
   };
 
   const handleExportDishCosts = () => {
-    const header = ['Dish Name', 'Default Serve', 'Serve Unit', 'Cost Price', 'Total Batch Cost'];
+    const header = ['Dish Name', 'Default Serve', 'Serve Unit', 'Cost Price'];
     const rows = dishServingCosts.map(cost => [
       cost.dishName,
       cost.defaultServingAmount,
       cost.defaultServingUnit,
       cost.costPrice.toFixed(2),
-      cost.totalBatchCost.toFixed(2),
     ]);
     const csv = [header, ...rows].map(row => row.map(escapeCsvCell).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const downloadAnchor = document.createElement('a');
     downloadAnchor.href = url;
