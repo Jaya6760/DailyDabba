@@ -21,6 +21,7 @@ import ConversionsManager from './components/ConversionsManager';
 import IngredientManager from './components/IngredientManager';
 import RecipeDetail from './components/RecipeDetail';
 import RecipeEditor from './components/RecipeEditor';
+import AIAssistant from './components/AIAssistant';
 
 // Lucide Icons
 import {
@@ -212,18 +213,27 @@ export default function App() {
   }, [recipes]);
 
   // Master Ingredient Operations
-  const handleAddIngredient = (newIngProps: Omit<Ingredient, 'id' | 'costPerUnit'>) => {
+  const handleAddIngredient = (newIngProps: Omit<Ingredient, 'id' | 'costPerUnit'> | Ingredient) => {
     const costPerUnit = getCostPerUnit(
       newIngProps.purchaseQty,
       newIngProps.purchaseUnit,
       newIngProps.purchaseCost
     );
+    const existingIdx = ingredients.findIndex(
+      i => i.name.trim().toLowerCase() === newIngProps.name.trim().toLowerCase()
+    );
     const newIng: Ingredient = {
       ...newIngProps,
-      id: `ing_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      id: ('id' in newIngProps && newIngProps.id) ? newIngProps.id : `ing_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       costPerUnit,
     };
-    setIngredients([newIng, ...ingredients]);
+    if (existingIdx !== -1) {
+      const updated = [...ingredients];
+      updated[existingIdx] = newIng;
+      setIngredients(updated);
+    } else {
+      setIngredients([newIng, ...ingredients]);
+    }
   };
 
   const handleEditIngredient = (updatedIng: Ingredient) => {
@@ -267,12 +277,21 @@ export default function App() {
   };
 
   // Teaspoon Mappings
-  const handleAddConversion = (newConvProps: Omit<TeaspoonConversion, 'id'>) => {
+  const handleAddConversion = (newConvProps: Omit<TeaspoonConversion, 'id'> | TeaspoonConversion) => {
+    const existingIdx = conversions.findIndex(
+      c => c.name.trim().toLowerCase() === newConvProps.name.trim().toLowerCase()
+    );
     const newConv: TeaspoonConversion = {
       ...newConvProps,
-      id: `conv_${Date.now()}`,
+      id: ('id' in newConvProps && newConvProps.id) ? newConvProps.id : `conv_${Date.now()}`,
     };
-    setConversions([newConv, ...conversions]);
+    if (existingIdx !== -1) {
+      const updated = [...conversions];
+      updated[existingIdx] = newConv;
+      setConversions(updated);
+    } else {
+      setConversions([newConv, ...conversions]);
+    }
   };
 
   const handleEditConversion = (updatedConv: TeaspoonConversion) => {
@@ -428,10 +447,25 @@ export default function App() {
       </header>
 
       {/* Main Workspace Stage */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* Left Column stage: Dishes & Active costing audits (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full space-y-6">
+        {/* Natural Language AI Assistant Banner & Drawer */}
+        <AIAssistant
+          ingredients={ingredients}
+          conversions={conversions}
+          gasConfig={gasConfig}
+          recipes={recipes}
+          onAddIngredient={handleAddIngredient}
+          onEditIngredient={handleEditIngredient}
+          onAddConversion={handleAddConversion}
+          onEditConversion={handleEditConversion}
+          onUpdateGasConfig={setGasConfig}
+          onSaveRecipe={(recipe, newIngs) => handleSaveRecipe(recipe, newIngs || [])}
+          onSelectRecipe={setSelectedRecipeId}
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left Column stage: Dishes & Active costing audits (7 cols) */}
+          <div className="lg:col-span-7 space-y-6">
           
           {isEditing ? (
             <RecipeEditor
@@ -640,6 +674,7 @@ export default function App() {
               />
             )}
           </div>
+        </div>
         </div>
       </main>
 
