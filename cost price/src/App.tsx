@@ -13,7 +13,7 @@ import {
   initialRecipes,
   getCostPerUnit,
 } from './data';
-import { calculateDefaultServingCost, getDefaultServingAmount, getDefaultServingUnit } from './utils';
+import { calculateDefaultServingCost, getDefaultServingAmount, getDefaultServingUnit, validateRecipe } from './utils';
 
 // Import subcomponents
 import GasCostCalculator from './components/GasCostCalculator';
@@ -21,6 +21,7 @@ import ConversionsManager from './components/ConversionsManager';
 import IngredientManager from './components/IngredientManager';
 import RecipeDetail from './components/RecipeDetail';
 import RecipeEditor from './components/RecipeEditor';
+import AIRecipeImporter from './components/AIRecipeImporter';
 
 // Lucide Icons
 import {
@@ -56,6 +57,7 @@ export default function App() {
   });
   const [isEditing, setIsEditing] = useState(false);
   const [editingRecipeId, setEditingRecipeId] = useState<string | null>(null); // null means new recipe
+  const [isAIImportOpen, setIsAIImportOpen] = useState(false);
   const [recipeServingQuantities, setRecipeServingQuantities] = useState<Record<string, string>>({});
 
   // Right column active sub-tab (for layout partitioning)
@@ -82,6 +84,14 @@ export default function App() {
     () => recipes.map(recipe => calculateDefaultServingCost(recipe, ingredients, conversions, gasConfig)),
     [recipes, ingredients, conversions, gasConfig]
   );
+
+  const recipeValidationMap = React.useMemo(() => {
+    const map: Record<string, boolean> = {};
+    recipes.forEach(r => {
+      map[r.id] = validateRecipe(r, ingredients, conversions).isComplete;
+    });
+    return map;
+  }, [recipes, ingredients, conversions]);
 
   const escapeCsvCell = (value: string | number) => {
     const raw = String(value);
@@ -346,6 +356,17 @@ export default function App() {
     setEditingRecipeId(null);
   };
 
+  const handleAIConfirmRecipe = (
+    recipeToSave: Recipe,
+    newIngredientsToRegister: Ingredient[],
+    newConversionsToSave?: TeaspoonConversion[]
+  ) => {
+    if (newConversionsToSave && newConversionsToSave.length > 0) {
+      setConversions(prev => [...newConversionsToSave, ...prev]);
+    }
+    handleSaveRecipe(recipeToSave, newIngredientsToRegister);
+  };
+
   const handleDuplicateRecipe = (recipeId: string) => {
     const source = recipes.find(r => r.id === recipeId);
     if (!source) return;
@@ -466,6 +487,14 @@ export default function App() {
                       Export Excel
                     </button>
                     <button
+                      onClick={() => setIsAIImportOpen(true)}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-teal-600 to-sky-600 hover:from-teal-700 hover:to-sky-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl hover:shadow-xs shadow-2xs transition whitespace-nowrap cursor-pointer"
+                      title="Import recipe using natural language"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      AI Import
+                    </button>
+                    <button
                       onClick={triggerCreateRecipe}
                       className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl hover:shadow-xs shadow-2xs transition whitespace-nowrap cursor-pointer"
                     >
@@ -502,6 +531,7 @@ export default function App() {
                   ) : (
                     filteredRecipesList.map(r => {
                       const isActive = selectedRecipeId === r.id;
+                      const isComplete = recipeValidationMap[r.id] ?? true;
                       const dishCost = dishServingCosts.find(cost => cost.recipeId === r.id);
                       const servingQuantity = dishCost?.defaultServingAmount ?? getDefaultServingAmount(r);
                       const displayedLabel = dishCost?.defaultServingUnit ?? getDefaultServingUnit(r);
@@ -518,13 +548,15 @@ export default function App() {
                           }`}
                         >
                           <div className="col-span-6 min-w-0">
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex items-center gap-1.5">
                               <span className="font-bold text-slate-700 text-sm line-clamp-1">
                                 {r.name}
                               </span>
-                              <span className="hidden">
-                                ₹{servingCost.toFixed(2)}
-                              </span>
+                              {!isComplete && (
+                                <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1 py-0.5 rounded border border-amber-200 shrink-0">
+                                  Draft
+                                </span>
+                              )}
                             </div>
                             <span className="text-[10px] text-slate-400 font-mono">
                               {r.ingredients.length} items | {r.cookingTimeMins} min cooked
@@ -534,8 +566,14 @@ export default function App() {
                           <div className="col-span-3 text-xs text-slate-500 font-semibold">
                             {servingQuantity} {displayedLabel}
                           </div>
-                          <div className="col-span-3 text-right font-mono text-sm font-extrabold text-teal-600 whitespace-nowrap">
-                            Rs {servingCost.toFixed(2)}
+                          <div className="col-span-3 text-right font-mono text-sm font-extrabold whitespace-nowrap">
+                            {isComplete ? (
+                              <span className="text-teal-600">Rs {servingCost.toFixed(2)}</span>
+                            ) : (
+                              <span className="text-amber-600 text-xs font-bold" title="Incomplete costing">
+                                ~Rs {servingCost.toFixed(2)}
+                              </span>
+                            )}
                           </div>
                         </button>
                       );
@@ -642,6 +680,16 @@ export default function App() {
           </div>
         </div>
       </main>
+
+      {/* AI Recipe Import Modal */}
+      <AIRecipeImporter
+        isOpen={isAIImportOpen}
+        onClose={() => setIsAIImportOpen(false)}
+        ingredientsList={ingredients}
+        conversionsList={conversions}
+        gasConfig={gasConfig}
+        onConfirmRecipe={handleAIConfirmRecipe}
+      />
 
       {/* Page Footer */}
       <footer className="mt-auto bg-slate-900 text-white border-t border-slate-800 py-6">

@@ -53,3 +53,33 @@ export interface DishServingCost {
   totalBatchCost: number;
   updatedAt: string;
 }
+
+export type ValidationIssueSeverity = 'error' | 'warning';
+
+export type ValidationIssueType =
+  | 'missing_ingredient'          // Ingredient not found in master database
+  | 'missing_price'               // Ingredient price is missing, <= 0, or invalid
+  | 'missing_teaspoon_conversion' // Unit is tsp, but no verified conversion exists in conversions table
+  | 'unsupported_unit'            // Unit is not one of 'g', 'kg', 'ml', 'litre', 'tsp'
+  | 'ambiguous_quantity'          // Quantity is <= 0 or invalid
+  | 'missing_yield'               // Yield amount is <= 0 or invalid
+  | 'missing_cooking_time';       // Cooking time is < 0 or invalid
+
+export interface RecipeValidationIssue {
+  type: ValidationIssueType;
+  severity: ValidationIssueSeverity;
+  message: string;
+  ingredientId?: string;
+  ingredientLocalId?: string;
+  ingredientName?: string;
+  currentUnit?: string;
+  currentQuantity?: number;
+  suggestedDefaultValue?: number; // e.g., 4g for tsp (clearly labeled as unverified suggestion)
+}
+
+export interface RecipeValidationResult {
+  isComplete: boolean; // True ONLY if all required pricing, conversions, quantities and yield are verified
+  isValid: boolean;    // False if critical errors (e.g. yield <= 0, quantity <= 0)
+  issues: RecipeValidationIssue[];
+}
+

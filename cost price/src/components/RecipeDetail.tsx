@@ -19,6 +19,7 @@ import {
   TrendingUp,
   RotateCcw,
   PlusCircle,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface RecipeDetailProps {
@@ -113,9 +114,21 @@ export default function RecipeDetail({
         {/* Total Batch Cost Card */}
         <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-5 shadow-md relative overflow-hidden">
           <ChefHat className="absolute right-0 bottom-0 w-24 h-24 text-white/5 -mb-4 -mr-4 pointer-events-none" />
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Batch Cost Price</p>
-          <p className="text-4xl font-extrabold font-mono tracking-tight mt-1.5 text-teal-300">
-            ₹{breakdown.totalBatchCost.toFixed(2)}
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Batch Cost Price</p>
+            {!breakdown.isComplete && (
+              <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-md">
+                Incomplete (Draft)
+              </span>
+            )}
+          </div>
+          <p className="text-4xl font-extrabold font-mono tracking-tight mt-1.5 text-teal-300 flex items-baseline gap-2 flex-wrap">
+            <span>₹{breakdown.totalBatchCost.toFixed(2)}</span>
+            {!breakdown.isComplete && (
+              <span className="text-xs font-semibold text-amber-300/90 font-sans">
+                (Unresolved: {breakdown.unresolvedIssues.length} issue{breakdown.unresolvedIssues.length !== 1 ? 's' : ''})
+              </span>
+            )}
           </p>
           <div className="flex justify-between items-center mt-4 pt-4 border-t border-white/10 text-xs text-slate-300 font-medium font-mono">
             <span>Ingredients: ₹{breakdown.ingredientsCost.toFixed(2)}</span>
@@ -198,6 +211,27 @@ export default function RecipeDetail({
         </div>
       </div>
 
+      {/* Unresolved Issues Alert Banner */}
+      {!breakdown.isComplete && breakdown.unresolvedIssues.length > 0 && (
+        <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center gap-2 text-amber-800 font-bold text-xs">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>Action Required: This recipe has {breakdown.unresolvedIssues.length} unresolved costing item{breakdown.unresolvedIssues.length !== 1 ? 's' : ''}</span>
+          </div>
+          <ul className="space-y-1 text-xs text-amber-800">
+            {breakdown.unresolvedIssues.map((issue, i) => (
+              <li key={i} className="flex items-start gap-1.5">
+                <span className="text-amber-500 font-bold">•</span>
+                <span>{issue.message}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-amber-700/80 italic pt-1">
+            Note: Costs shown above are partial estimates. A final verified recipe cost requires all ingredients, conversions, and prices to be resolved.
+          </p>
+        </div>
+      )}
+
       {/* Debug Mode Breakdown Section */}
       <div className="space-y-3">
         <div className="flex justify-between items-center">
@@ -242,30 +276,40 @@ export default function RecipeDetail({
                         {/* Display tsp converted weight details if it was a teaspoon */}
                         {row.isTsp && (
                           <span
-                            className={`text-[9px] font-mono rounded px-1 ${
-                              row.isTspDefaultUsed ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-teal-50 text-teal-600'
+                            className={`text-[9px] font-mono rounded px-1.5 py-0.5 border ${
+                              row.conversionGrams > 0
+                                ? 'bg-teal-50 text-teal-600 border-teal-200'
+                                : 'bg-amber-50 text-amber-600 border-amber-200 font-bold'
                             }`}
-                            title={row.isTspDefaultUsed ? 'Default fallback weight applied' : 'Teaspoon conversion match found'}
+                            title={row.conversionGrams > 0 ? 'Verified teaspoon conversion' : 'Missing verified teaspoon conversion'}
                           >
-                            = {row.effectiveQty}g ({row.isTspDefaultUsed ? 'Default 4g' : `${row.conversionGrams}g/tsp`})
+                            {row.conversionGrams > 0
+                              ? `= ${row.effectiveQty}g (${row.conversionGrams}g/tsp)`
+                              : '⚠ Missing tsp weight'}
                           </span>
                         )}
                       </div>
                       
-                      {!row.matchedIngredient ? (
-                        <p className="text-[10px] text-red-500 flex items-center gap-1 font-medium">
-                          <HelpCircle className="w-3 h-3 flex-shrink-0" />
-                          Unregistered in Database (excluding or ₹0 cost rate)
+                      {row.isUnresolved ? (
+                        <p className="text-[10px] text-amber-700 flex items-center gap-1 font-medium mt-0.5">
+                          <AlertTriangle className="w-3 h-3 flex-shrink-0 text-amber-500" />
+                          <span>{row.unresolvedReason || 'Unresolved calculation'}</span>
                         </p>
                       ) : (
                         <p className="text-[10px] text-slate-400 font-mono">
-                          Computed: {row.effectiveQty}{row.baseUnit} × ₹{row.matchedIngredient.costPerUnit.toFixed(4)}/{row.baseUnit}
+                          Computed: {row.effectiveQty}{row.baseUnit} × ₹{row.matchedIngredient?.costPerUnit.toFixed(4)}/{row.baseUnit}
                         </p>
                       )}
                     </div>
                     
-                    <div className="text-right font-mono font-bold text-slate-700 text-xs self-center">
-                      ₹{row.cost.toFixed(2)}
+                    <div className="text-right font-mono font-bold text-xs self-center">
+                      {row.isUnresolved ? (
+                        <span className="text-amber-600 text-[11px] bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                          Pending
+                        </span>
+                      ) : (
+                        <span className="text-slate-700">₹{row.cost.toFixed(2)}</span>
+                      )}
                     </div>
                   </div>
                 );
@@ -303,8 +347,10 @@ export default function RecipeDetail({
                 <span className="font-bold text-slate-600">₹{breakdown.gasCost.toFixed(2)}</span>
               </div>
               <div className="border-t border-slate-300 pt-2 flex justify-between font-extrabold text-slate-800 text-sm">
-                <span>TOTAL BATCH COST PRICE:</span>
-                <span className="text-teal-600">₹{breakdown.totalBatchCost.toFixed(2)}</span>
+                <span>TOTAL BATCH COST PRICE{breakdown.isComplete ? '' : ' (ESTIMATED)'}:</span>
+                <span className={breakdown.isComplete ? 'text-teal-600' : 'text-amber-600'}>
+                  ₹{breakdown.totalBatchCost.toFixed(2)}
+                </span>
               </div>
             </div>
           </div>

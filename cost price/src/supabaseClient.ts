@@ -28,6 +28,12 @@ const createFallbackClient = () => {
         return query;
       },
     }),
+    functions: {
+      invoke: async (_functionName: string, _options?: any) => ({
+        data: null,
+        error: new Error('Supabase client not configured with environment keys.'),
+      }),
+    },
   };
 };
 
