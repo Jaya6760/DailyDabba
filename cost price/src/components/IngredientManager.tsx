@@ -91,6 +91,7 @@ export default function IngredientManager({
     const costNum = parseFloat(editingCost);
     if (isNaN(qtyNum) || qtyNum <= 0 || isNaN(costNum) || costNum < 0) return;
 
+    const existing = ingredients.find(i => i.id === id);
     onEdit({
       id,
       name: editingName.trim(),
@@ -98,6 +99,7 @@ export default function IngredientManager({
       purchaseUnit: editingUnit,
       purchaseCost: costNum,
       costPerUnit: getCostPerUnit(qtyNum, editingUnit, costNum),
+      aliases: existing?.aliases,
     });
 
     setEditingId(null);

@@ -23,11 +23,13 @@ const createFallbackClient = () => {
       upsert: async (_payload: any) => ({ data: null, error: null }),
       delete: () => ({
         eq: async (_column: string, _value: any) => ({ data: null, error: null }),
+        in: async (_column: string, _values: any[]) => ({ data: null, error: null }),
       }),
       limit: function (_n: number) {
         return query;
       },
     }),
+    rpc: async (_functionName: string, _payload?: any) => ({ data: null, error: null }),
     functions: {
       invoke: async (_functionName: string, _options?: any) => ({
         data: null,

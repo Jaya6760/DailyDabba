@@ -8,6 +8,7 @@
 import { Ingredient, TeaspoonConversion, GasConfig, Recipe, RecipeIngredient } from '../types';
 import { RawAIParsedRecipe, RawAIParsedIngredient } from '../server/ai/types';
 import { calculateRecipeCosts, RecipeCostBreakdown, SUPPORTED_UNITS } from '../utils';
+import { matchIngredient, findMatchingConversion } from './ingredientMatcher';
 
 export interface MatchedIngredientDetail {
   extractedIngredient: RawAIParsedIngredient;
@@ -29,29 +30,6 @@ export interface IngestedRecipeReview {
   unresolvedCount: number;
 }
 
-const COMMON_ALIASES: Record<string, string[]> = {
-  poha: ['poha'],
-  rice: ['rice'],
-  'wheat flour': ['wheat flour', 'atta', 'gehu atta', 'flour'],
-  salt: ['salt', 'namak'],
-  haldi: ['haldi', 'turmeric'],
-  jeera: ['jeera', 'cumin', 'jeera seeds'],
-  'refined oil': ['refined oil', 'oil', 'cooking oil'],
-  'mustard oil': ['mustard oil', 'sarson oil'],
-  'amul ghee': ['amul ghee', 'ghee', 'desi ghee'],
-  groundnut: ['groundnut', 'peanut', 'peanuts', 'mungfali'],
-  sugar: ['sugar', 'cheeni'],
-  'moong dal': ['moong dal', 'moong'],
-  'tur dal': ['tur dal', 'arhar dal', 'toor dal'],
-  rajma: ['rajma', 'kidney beans'],
-  chole: ['chole', 'chickpeas', 'kabuli chana'],
-  chana: ['chana', 'kala chana'],
-  ajwain: ['ajwain', 'carom seeds'],
-  'garam masala': ['garam masala'],
-  'black salt': ['black salt', 'kala namak'],
-  'red chilli flakes': ['red chilli flakes', 'chilli flakes', 'chili flakes'],
-};
-
 /**
  * Normalizes input unit strings to supported app units.
  */
@@ -69,38 +47,17 @@ export function normalizeUnit(unitStr: string | null | undefined): 'g' | 'kg' | 
 }
 
 /**
- * Attempts candidate matching of an extracted ingredient name against the database.
+ * Attempts candidate matching of an extracted ingredient name against the database
+ * using the single canonical ingredient matching engine.
  */
 export function findCandidateMatches(
   extractedName: string,
   ingredientsList: Ingredient[]
 ): { bestMatch: Ingredient | null; candidates: Ingredient[] } {
-  const clean = extractedName.trim().toLowerCase();
-
-  // 1. Exact match
-  const exact = ingredientsList.find(i => i.name.trim().toLowerCase() === clean);
-  if (exact) {
-    return { bestMatch: exact, candidates: [exact] };
-  }
-
-  // 2. Alias lookup
-  for (const [masterKey, aliases] of Object.entries(COMMON_ALIASES)) {
-    if (aliases.some(a => clean === a || clean.includes(a) || a.includes(clean))) {
-      const aliasMatch = ingredientsList.find(i => i.name.trim().toLowerCase() === masterKey);
-      if (aliasMatch) {
-        return { bestMatch: aliasMatch, candidates: [aliasMatch] };
-      }
-    }
-  }
-
-  // 3. Substring / partial matches
-  const partials = ingredientsList.filter(
-    i => clean.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(clean)
-  );
-
+  const result = matchIngredient(extractedName, ingredientsList);
   return {
-    bestMatch: partials.length === 1 ? partials[0] : null,
-    candidates: partials.slice(0, 5),
+    bestMatch: result.matchedIngredient,
+    candidates: result.candidates,
   };
 }
 
@@ -125,9 +82,8 @@ export function ingestAIRecipe(
     // Check if teaspoon conversion is missing
     let missingConversion = false;
     if (normalized === 'tsp') {
-      const cleanName = (bestMatch?.name || ing.name).trim().toLowerCase();
-      const hasConv = conversionsList.some(c => c.name.trim().toLowerCase() === cleanName && c.weightGrams > 0);
-      missingConversion = !hasConv;
+      const matchedConv = findMatchingConversion(bestMatch?.name || ing.name, conversionsList);
+      missingConversion = !matchedConv || matchedConv.weightGrams <= 0;
     }
 
     const detail: MatchedIngredientDetail = {

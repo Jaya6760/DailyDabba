@@ -22,6 +22,18 @@ import IngredientManager from './components/IngredientManager';
 import RecipeDetail from './components/RecipeDetail';
 import RecipeEditor from './components/RecipeEditor';
 import AIRecipeImporter from './components/AIRecipeImporter';
+import AIKitchenAssistantModal from './components/AIKitchenAssistantModal';
+import {
+  persistCreateIngredient,
+  persistUpdateIngredient,
+  persistDeleteIngredient,
+  persistSaveConversion,
+  persistDeleteConversion,
+  persistSaveGasConfig,
+  persistSaveRecipe,
+  persistDeleteRecipe,
+} from './services/catalogPersistenceService';
+import { broadcastCatalogMutation, subscribeToCatalogMutations } from './services/crossTabSync';
 
 // Lucide Icons
 import {
@@ -119,6 +131,29 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  const reloadCatalogFromDatabase = React.useCallback(async () => {
+    try {
+      const [{ data: ingredientsData, error: ingErr }, { data: conversionsData, error: convErr }, { data: gasData, error: gasErr }, { data: recipesData, error: recipesErr }] = await Promise.all([
+        supabase.from('ingredients').select('*'),
+        supabase.from('conversions').select('*'),
+        supabase.from('gas_config').select('*').limit(1),
+        supabase.from('recipes').select('*'),
+      ]);
+
+      if (ingErr || convErr || gasErr || recipesErr) {
+        throw ingErr || convErr || gasErr || recipesErr;
+      }
+
+      if (ingredientsData && ingredientsData.length > 0) setIngredients(ingredientsData as Ingredient[]);
+      if (conversionsData && conversionsData.length > 0) setConversions(conversionsData as TeaspoonConversion[]);
+      if (gasData && gasData.length > 0) setGasConfig(gasData[0] as GasConfig & { id: string });
+      if (recipesData && recipesData.length > 0) setRecipes(recipesData as Recipe[]);
+      setIsDbLoaded(true);
+    } catch (error) {
+      console.warn('Cross-tab / background reload warning:', error);
+    }
+  }, []);
+
   useEffect(() => {
     const loadFromDatabase = async () => {
       try {
@@ -166,49 +201,23 @@ export default function App() {
     };
 
     loadFromDatabase();
-  }, []);
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    void (async () => {
-      const { error } = await supabase.from('ingredients').upsert(ingredients);
-      if (error) console.error('Ingredients sync failed', error);
-    })();
-  }, [ingredients, isDbLoaded]);
+    // Cross-tab sync listener: when another tab updates data, refresh local state
+    const unsubscribe = subscribeToCatalogMutations(() => {
+      reloadCatalogFromDatabase();
+    });
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    void (async () => {
-      const { error } = await supabase.from('conversions').upsert(conversions);
-      if (error) console.error('Conversions sync failed', error);
-    })();
-  }, [conversions, isDbLoaded]);
+    // Window focus listener: when switching back to this tab, refresh data
+    const handleFocus = () => {
+      reloadCatalogFromDatabase();
+    };
+    window.addEventListener('focus', handleFocus);
 
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    void (async () => {
-      const { error } = await supabase.from('gas_config').upsert([{ id: 'singleton', ...gasConfig }]);
-      if (error) console.error('Gas config sync failed', error);
-    })();
-  }, [gasConfig, isDbLoaded]);
-
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    void (async () => {
-      if (recipes.length === 0) return;
-      const { error } = await supabase.from('recipes').upsert(recipes);
-      if (error) console.error('Recipes sync failed', error);
-    })();
-  }, [recipes, isDbLoaded]);
-
-  useEffect(() => {
-    if (!isDbLoaded) return;
-    void (async () => {
-      if (dishServingCosts.length === 0) return;
-      const { error } = await supabase.from('dish_costs').upsert(dishServingCosts);
-      if (error) console.error('Dish serving costs sync failed. Create the dish_costs table using supabase-schema.sql.', error);
-    })();
-  }, [dishServingCosts, isDbLoaded]);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [reloadCatalogFromDatabase]);
 
   // Derive counts of ingredient usage across all recipes
   const recipesCountMap = React.useMemo(() => {
@@ -221,8 +230,8 @@ export default function App() {
     return counts;
   }, [recipes]);
 
-  // Master Ingredient Operations
-  const handleAddIngredient = (newIngProps: Omit<Ingredient, 'id' | 'costPerUnit'>) => {
+  // Master Ingredient Operations (Targeted Persistence)
+  const handleAddIngredient = async (newIngProps: Omit<Ingredient, 'id' | 'costPerUnit'>) => {
     const costPerUnit = getCostPerUnit(
       newIngProps.purchaseQty,
       newIngProps.purchaseUnit,
@@ -232,25 +241,31 @@ export default function App() {
       ...newIngProps,
       id: `ing_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       costPerUnit,
+      aliases: Array.isArray((newIngProps as any).aliases) ? (newIngProps as any).aliases : [],
     };
     setIngredients([newIng, ...ingredients]);
+    const res = await persistCreateIngredient(newIng, ingredients);
+    if (res.ingredients) setIngredients(res.ingredients);
+    broadcastCatalogMutation({ action: 'create_ingredient', id: newIng.id });
   };
 
-  const handleEditIngredient = (updatedIng: Ingredient) => {
+  const handleEditIngredient = async (updatedIng: Ingredient) => {
     setIngredients(ingredients.map(i => (i.id === updatedIng.id ? updatedIng : i)));
+    const res = await persistUpdateIngredient(updatedIng, ingredients, recipes, conversions, gasConfig);
+    if (res.ingredients) setIngredients(res.ingredients);
+    broadcastCatalogMutation({ action: 'update_ingredient', id: updatedIng.id });
   };
 
-  const handleDeleteIngredient = (id: string) => {
+  const handleDeleteIngredient = async (id: string) => {
     setIngredients(ingredients.filter(i => i.id !== id));
-    void (async () => {
-      const { error } = await supabase.from('ingredients').delete().eq('id', id);
-      if (error) console.error('Ingredient delete failed', error);
-    })();
+    const res = await persistDeleteIngredient(id, ingredients);
+    if (res.ingredients) setIngredients(res.ingredients);
+    broadcastCatalogMutation({ action: 'delete_ingredient', id });
   };
 
-  const handleBulkImportIngredients = (importedList: Ingredient[]) => {
-    // Merge Strategy: Identify duplicates by name matching (case-insensitive) and override
+  const handleBulkImportIngredients = async (importedList: Ingredient[]) => {
     const updated = [...ingredients];
+    const toUpsert: Ingredient[] = [];
     importedList.forEach(importedItem => {
       const matchIdx = updated.findIndex(
         i => i.name.trim().toLowerCase() === importedItem.name.trim().toLowerCase()
@@ -260,10 +275,16 @@ export default function App() {
         importedItem.purchaseUnit,
         importedItem.purchaseCost
       );
+      const existingAliases = matchIdx !== -1 ? updated[matchIdx].aliases : undefined;
       const safeIng: Ingredient = {
         ...importedItem,
         id: importedItem.id && !importedItem.id.startsWith('temp_') ? importedItem.id : `ing_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
         costPerUnit,
+        aliases: Array.isArray(importedItem.aliases)
+          ? importedItem.aliases
+          : Array.isArray(existingAliases)
+          ? existingAliases
+          : [],
       };
 
       if (matchIdx !== -1) {
@@ -271,89 +292,81 @@ export default function App() {
       } else {
         updated.push(safeIng);
       }
+      toUpsert.push(safeIng);
     });
 
     setIngredients(updated);
+    try {
+      await supabase.from('ingredients').upsert(toUpsert);
+      broadcastCatalogMutation({ action: 'bulk_import_ingredients', count: toUpsert.length });
+    } catch (e) {
+      console.warn('Bulk upsert ingredients warning', e);
+    }
   };
 
-  // Teaspoon Mappings
-  const handleAddConversion = (newConvProps: Omit<TeaspoonConversion, 'id'>) => {
+  // Teaspoon Mappings (Targeted Persistence)
+  const handleAddConversion = async (newConvProps: Omit<TeaspoonConversion, 'id'>) => {
     const newConv: TeaspoonConversion = {
       ...newConvProps,
       id: `conv_${Date.now()}`,
     };
     setConversions([newConv, ...conversions]);
+    const res = await persistSaveConversion(newConv, conversions, recipes, ingredients, gasConfig);
+    if (res.conversions) setConversions(res.conversions);
+    broadcastCatalogMutation({ action: 'create_conversion', id: newConv.id });
   };
 
-  const handleEditConversion = (updatedConv: TeaspoonConversion) => {
+  const handleEditConversion = async (updatedConv: TeaspoonConversion) => {
     setConversions(conversions.map(c => (c.id === updatedConv.id ? updatedConv : c)));
+    const res = await persistSaveConversion(updatedConv, conversions, recipes, ingredients, gasConfig);
+    if (res.conversions) setConversions(res.conversions);
+    broadcastCatalogMutation({ action: 'update_conversion', id: updatedConv.id });
   };
 
-  const handleDeleteConversion = (id: string) => {
+  const handleDeleteConversion = async (id: string) => {
     setConversions(conversions.filter(c => c.id !== id));
-    void (async () => {
-      const { error } = await supabase.from('conversions').delete().eq('id', id);
-      if (error) console.error('Conversion delete failed', error);
-    })();
+    const res = await persistDeleteConversion(id, conversions);
+    if (res.conversions) setConversions(res.conversions);
+    broadcastCatalogMutation({ action: 'delete_conversion', id });
   };
 
-  const handleResetConversions = () => {
+  const handleResetConversions = async () => {
     if (window.confirm('Are you sure you want to restore conversions to standard defaults? This will overwrite manual changes.')) {
       setConversions(initialConversions);
+      try {
+        await supabase.from('conversions').upsert(initialConversions);
+        broadcastCatalogMutation({ action: 'reset_conversions' });
+      } catch (e) {
+        console.warn('Conversions reset warning', e);
+      }
     }
   };
 
-  // Recipes actions
-  const handleSaveRecipe = (recipeToSave: Recipe, newIngredientsToRegister: Ingredient[]) => {
-    // 1. If we have on-the-fly ingredients created under Requirement 3, save them in the main database first!
-    let updatedIngredients = [...ingredients];
-    const tempToRealIdMap: Record<string, string> = {};
+  // Gas Config Changes (Targeted Persistence)
+  const handleGasConfigChange = async (newGas: GasConfig) => {
+    setGasConfig(newGas);
+    await persistSaveGasConfig(newGas, recipes, ingredients, conversions);
+    broadcastCatalogMutation({ action: 'update_gas_config' });
+  };
 
-    newIngredientsToRegister.forEach(tempIng => {
-      const realId = `ing_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-      tempToRealIdMap[tempIng.id] = realId;
-
-      const registeredItem: Ingredient = {
-        ...tempIng,
-        id: realId,
-      };
-      updatedIngredients.push(registeredItem);
-    });
-
-    // Save registered items
-    if (newIngredientsToRegister.length > 0) {
-      setIngredients(updatedIngredients);
+  // Recipes actions (Targeted Persistence)
+  const handleSaveRecipe = async (recipeToSave: Recipe, newIngredientsToRegister: Ingredient[]) => {
+    const res = await persistSaveRecipe(
+      recipeToSave,
+      newIngredientsToRegister,
+      recipes,
+      ingredients,
+      conversions,
+      gasConfig
+    );
+    if (res.success) {
+      setRecipes(res.recipes);
+      setIngredients(res.ingredients);
+      setSelectedRecipeId(recipeToSave.id);
+      setIsEditing(false);
+      setEditingRecipeId(null);
+      broadcastCatalogMutation({ action: 'save_recipe', id: recipeToSave.id });
     }
-
-    // 2. Adjust recipe ingredient mappings replacing temp IDs
-    const resolvedIngredients = recipeToSave.ingredients.map(ri => {
-      if (tempToRealIdMap[ri.ingredientId]) {
-        return {
-          ...ri,
-          ingredientId: tempToRealIdMap[ri.ingredientId],
-        };
-      }
-      return ri;
-    });
-
-    const finalizedRecipe: Recipe = {
-      ...recipeToSave,
-      defaultServingAmount: getDefaultServingAmount(recipeToSave),
-      ingredients: resolvedIngredients,
-    };
-
-    // 3. Save / update recipe array
-    const exists = recipes.some(r => r.id === finalizedRecipe.id);
-    if (exists) {
-      setRecipes(recipes.map(r => (r.id === finalizedRecipe.id ? finalizedRecipe : r)));
-    } else {
-      setRecipes([finalizedRecipe, ...recipes]);
-    }
-
-    // Set as active selected card
-    setSelectedRecipeId(finalizedRecipe.id);
-    setIsEditing(false);
-    setEditingRecipeId(null);
   };
 
   const handleAIConfirmRecipe = (
@@ -364,10 +377,10 @@ export default function App() {
     if (newConversionsToSave && newConversionsToSave.length > 0) {
       setConversions(prev => [...newConversionsToSave, ...prev]);
     }
-    handleSaveRecipe(recipeToSave, newIngredientsToRegister);
+    void handleSaveRecipe(recipeToSave, newIngredientsToRegister);
   };
 
-  const handleDuplicateRecipe = (recipeId: string) => {
+  const handleDuplicateRecipe = async (recipeId: string) => {
     const source = recipes.find(r => r.id === recipeId);
     if (!source) return;
 
@@ -378,27 +391,25 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    setRecipes([dupRecipe, ...recipes]);
+    await handleSaveRecipe(dupRecipe, []);
     setSelectedRecipeId(dupRecipe.id);
     setIsEditing(false);
   };
 
-  const handleDeleteRecipe = (recipeId: string) => {
-    const updated = recipes.filter(r => r.id !== recipeId);
-    setRecipes(updated);
-    if (selectedRecipeId === recipeId) {
-      setSelectedRecipeId(updated.length > 0 ? updated[0].id : null);
+  const handleDeleteRecipe = async (recipeId: string) => {
+    const res = await persistDeleteRecipe(recipeId, recipes);
+    if (res.success) {
+      setRecipes(res.recipes);
+      if (selectedRecipeId === recipeId) {
+        setSelectedRecipeId(res.recipes.length > 0 ? res.recipes[0].id : null);
+      }
+      setIsEditing(false);
+      broadcastCatalogMutation({ action: 'delete_recipe', id: recipeId });
     }
-    setIsEditing(false);
-    void (async () => {
-      const [{ error: recipeError }, { error: costError }] = await Promise.all([
-        supabase.from('recipes').delete().eq('id', recipeId),
-        supabase.from('dish_costs').delete().eq('recipeId', recipeId),
-      ]);
-      if (recipeError) console.error('Recipe delete failed', recipeError);
-      if (costError) console.error('Dish cost delete failed', costError);
-    })();
   };
+
+
+
 
   // Active editors trigger
   const triggerCreateRecipe = () => {
@@ -664,7 +675,7 @@ export default function App() {
             {activeTab === 'gas' && (
               <GasCostCalculator
                 config={gasConfig}
-                onChange={setGasConfig}
+                onChange={handleGasConfigChange}
               />
             )}
 
@@ -681,14 +692,23 @@ export default function App() {
         </div>
       </main>
 
-      {/* AI Recipe Import Modal */}
-      <AIRecipeImporter
+      {/* AI Conversational Assistant Modal */}
+      <AIKitchenAssistantModal
         isOpen={isAIImportOpen}
         onClose={() => setIsAIImportOpen(false)}
         ingredientsList={ingredients}
         conversionsList={conversions}
         gasConfig={gasConfig}
-        onConfirmRecipe={handleAIConfirmRecipe}
+        recipesList={recipes}
+        onApplySuccess={(data) => {
+          setIngredients(data.updatedIngredients);
+          setConversions(data.updatedConversions);
+          setGasConfig(data.updatedGasConfig);
+          setRecipes(data.updatedRecipes);
+          if (data.updatedRecipes.length > 0) {
+            setSelectedRecipeId(data.updatedRecipes[0].id);
+          }
+        }}
       />
 
       {/* Page Footer */}

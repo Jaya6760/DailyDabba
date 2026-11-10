@@ -10,6 +10,7 @@ export interface Ingredient {
   purchaseUnit: 'kg' | 'g' | 'litre' | 'ml';
   purchaseCost: number; // e.g., 59.8
   costPerUnit: number; // calculated cost per base unit (g or ml)
+  aliases?: string[]; // Database-backed custom aliases (case-insensitive matched)
 }
 
 export interface TeaspoonConversion {

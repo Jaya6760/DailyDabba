@@ -7,10 +7,93 @@
 
 import supabase from '../supabaseClient';
 import { RawAIParsedRecipe } from '../server/ai/types';
+import { UniversalKitchenIntent, validateUniversalKitchenIntent } from '../server/ai/intentSchema';
 
 export interface ParseRecipeResult {
   recipe: RawAIParsedRecipe;
   provider: string;
+}
+
+export interface ParseKitchenIntentResult {
+  intent: UniversalKitchenIntent;
+  provider: string;
+}
+
+export async function parseKitchenIntentFromNaturalLanguage(
+  message: string,
+  history: Array<{ role: 'user' | 'model'; content: string }> = []
+): Promise<ParseKitchenIntentResult> {
+  const trimmed = message.trim();
+  if (!trimmed) {
+    throw new Error('Please enter a message before submitting.');
+  }
+
+  let localAuthError: string | null = null;
+
+  // 1. Try local server-side endpoint first (/api/parse-kitchen-intent)
+  try {
+    const localRes = await fetch('/api/parse-kitchen-intent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message: trimmed, history }),
+    });
+
+    if (localRes.ok) {
+      const data = await localRes.json();
+      if (data.success && data.data) {
+        const intent = validateUniversalKitchenIntent(data.data);
+        return { intent, provider: data.provider || 'AI' };
+      }
+      throw new Error(data?.error?.message || 'Invalid response from kitchen intent parsing service.');
+    } else if (localRes.status === 404) {
+      // 404 indicates local endpoint is not present (production static hosting).
+      // Fall through to Supabase Edge Function below.
+    } else {
+      const errorJson = await localRes.json().catch(() => null);
+      if (errorJson?.error?.code === 'AUTH_ERROR') {
+        localAuthError = errorJson.error.message;
+      } else {
+        throw new Error(errorJson?.error?.message || `AI parsing request failed with status ${localRes.status}.`);
+      }
+    }
+  } catch (err: any) {
+    if (err.name !== 'TypeError' && !err.message?.includes('Failed to fetch')) {
+      throw err;
+    }
+  }
+
+  // 2. Fallback to Supabase Edge Function (parse-catalog-intent) if in production or configured
+  try {
+    const { data, error } = await supabase.functions.invoke('parse-catalog-intent', {
+      body: { message: trimmed, history },
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Failed to call Supabase Edge Function.');
+    }
+
+    if (data?.success && data?.data) {
+      const intent = validateUniversalKitchenIntent(data.data);
+      return { intent, provider: data.provider || 'Supabase AI Edge' };
+    }
+
+    if (data?.error?.message) {
+      throw new Error(data.error.message);
+    }
+  } catch (err: any) {
+    if (localAuthError) {
+      throw new Error(
+        `${localAuthError} If running locally, please restart "npm run dev" to load your updated .env file.`
+      );
+    }
+    throw new Error(
+      err?.message || 'Unable to parse kitchen intent. Please ensure GEMINI_API_KEY is configured on the server.'
+    );
+  }
+
+  throw new Error('No response received from the kitchen intent parsing service.');
 }
 
 export async function parseRecipeFromNaturalLanguage(recipeText: string): Promise<ParseRecipeResult> {
