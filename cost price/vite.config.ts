@@ -1,11 +1,21 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig, loadEnv } from 'vite';
+import { viteApiPlugin } from './vite-api-plugin';
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  // Load .env variables (including server-side keys without VITE_ prefix) into process.env for Node middleware
+  const env = loadEnv(mode || 'development', process.cwd(), '');
+  if (env.GEMINI_API_KEY) {
+    process.env.GEMINI_API_KEY = env.GEMINI_API_KEY;
+  }
+  if (env.GEMINI_MODEL) {
+    process.env.GEMINI_MODEL = env.GEMINI_MODEL;
+  }
+
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), viteApiPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
